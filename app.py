@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import sqlite3
 from datetime import datetime, timedelta
+import random
 import os
 
 st.set_page_config(
@@ -15,7 +16,7 @@ st.set_page_config(
 )
 
 # -------------------------------------------------------------
-# DATABASE CONFIGURATION
+# BANCO DE DADOS & OPERAÇÕES (CRUD COMPLETO)
 # -------------------------------------------------------------
 DB_PATH = "life_logger.db"
 
@@ -71,6 +72,24 @@ def log_event(categoria, amount=None, tipo=None, duracao=None, calorias=None, mo
         INSERT INTO habits (timestamp, categoria, local, amount, tipo, duracao, calorias, mood, gatilho, nota)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (now_str, categoria, loc, amount, tipo, duracao, calorias, mood, gatilho, nota))
+    conn.commit()
+    conn.close()
+
+def update_event(record_id, timestamp, categoria, local, amount, tipo, duracao, calorias, mood, gatilho, nota):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        UPDATE habits 
+        SET timestamp=?, categoria=?, local=?, amount=?, tipo=?, duracao=?, calorias=?, mood=?, gatilho=?, nota=?
+        WHERE id=?
+    """, (timestamp, categoria, local, amount, tipo, duracao, calorias, mood, gatilho, nota, record_id))
+    conn.commit()
+    conn.close()
+
+def delete_event(record_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM habits WHERE id=?", (record_id,))
     conn.commit()
     conn.close()
 
@@ -144,6 +163,43 @@ if count == 0 and os.path.exists('life-logger1 .xlsx'):
         st.warning(f"Aviso ao migrar: {e}")
 
 # -------------------------------------------------------------
+# MODAL / DIALOG: PENSANDO EM FUMAR? (SOS ANTITABAGISMO)
+# -------------------------------------------------------------
+FRASES_MOTIVACIONAIS = [
+    "A fissura aguda dura apenas entre 3 a 5 minutos. Espere a onda química passar!",
+    "Lembre-se: o cigarro não resolve o estresse da reunião, ele apenas cria a abstinência do próximo cigarro.",
+    "Você já treinou e correu com dedicação nesta semana. Não troque sua capacidade pulmonar por 5 minutos de fumaça.",
+    "A fissura é apenas o cérebro pedindo dopamina rápida. Escolha uma dopamina que constrói sua saúde.",
+    "Oxigênio puro no sangue reduz a ansiedade mais rápido que monóxido de carbono. Respire fundo."
+]
+
+@st.dialog("🛑 Pensando em Fumar? Respire Primeiro.")
+def modal_sos_cigarro():
+    frase = random.choice(FRASES_MOTIVACIONAIS)
+    st.info(f"💡 **Ponto de Consciência:**\n\n*{frase}*")
+    
+    st.markdown("### O que fazer AGORA para desarmar o gatilho:")
+    st.markdown("""
+    * **1. Protocolo do Copo D'água:** Beba 1 copo grande de água bem gelada em pequenos goles lentos.
+    * **2. Respiração 4-7-8:** Puxe o ar pelo nariz por 4s, segure por 7s e solte pela boca por 8s (faça 4 repetições).
+    * **3. Mudança de Cenário:** Levante da cadeira, saia da frente da tela ou do cômodo onde está e caminhe um pouco.
+    * **4. Descarga Muscular:** Faça 15 flexões ou 1 minuto de prancha para gastar o pico de ansiedade.
+    * **5. Estímulo Oral Substituto:** Beba café sem cigarro, pegue uma goma de mascar ou água com gás e limão.
+    """)
+    
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💪 Venci a fissura! (Não vou fumar)", use_container_width=True, type="primary"):
+            st.toast("Muito bom! Cada fissura superada enfraquece o hábito no seu cérebro.", icon="🔥")
+            st.rerun()
+    with col2:
+        if st.button("Fumar mesmo assim", use_container_width=True):
+            log_event(categoria="Cigarro", amount=1, gatilho="Fissura Consciente")
+            st.toast("Registrado com consciência. Repare no que você sentiu.", icon="🚬")
+            st.rerun()
+
+# -------------------------------------------------------------
 # SIDEBAR: PERSISTÊNCIA & REGISTRO RÁPIDO
 # -------------------------------------------------------------
 curr_loc = get_current_location()
@@ -157,6 +213,11 @@ if st.sidebar.button("Atualizar Local", use_container_width=True):
     set_current_location(new_loc)
     st.sidebar.success(f"Local: {new_loc}")
     st.rerun()
+
+st.sidebar.divider()
+
+if st.sidebar.button("🛑 Pensando em Fumar?", use_container_width=True, type="primary"):
+    modal_sos_cigarro()
 
 st.sidebar.divider()
 st.sidebar.subheader("⚡ Registro Rápido (Mais Usados)")
@@ -178,7 +239,7 @@ col_e1, col_e2 = st.sidebar.columns(2)
 with col_e1:
     if st.button("🏋️ Musculação", help="45 min - 350 kcal", use_container_width=True):
         log_event(categoria="Exercício", tipo="Musculação", duracao=45, calorias=350, amount=1)
-        st.toast("Treino de Musculação registrado!", icon="💪")
+        st.toast("Musculação registrada!", icon="💪")
         st.rerun()
 with col_e2:
     if st.button("🏃 Corrida", help="5km - 45 min", use_container_width=True):
@@ -214,10 +275,11 @@ with col_b2:
 # -------------------------------------------------------------
 # MAIN APP TABS
 # -------------------------------------------------------------
-tab_semana, tab_evolucao, tab_novo, tab_dados = st.tabs([
+tab_semana, tab_evolucao, tab_novo, tab_editar, tab_dados = st.tabs([
     "📅 Visão Semanal", 
     "📈 Evolução & Histórico", 
-    "📝 Registro Detalhado", 
+    "📝 Novo Registro", 
+    "✏️ Editar / Deletar",
     "🗄️ Dados Brutos"
 ])
 
@@ -225,7 +287,7 @@ df = load_data()
 
 with tab_semana:
     st.header("Acompanhamento Semanal")
-    st.caption("Visão focada na sua rotina recente para tomada de decisão no dia a dia.")
+    st.caption("Visão focada na sua rotina recente para acompanhamento no dia a dia.")
     
     if df.empty:
         st.info("Nenhum dado registrado.")
@@ -306,7 +368,7 @@ with tab_semana:
 
 with tab_evolucao:
     st.header("Evolução Semanal Comparativa")
-    st.caption("Acompanhe a tendência de redução de fumo e frequência de treinos.")
+    st.caption("Acompanhe o comportamento consolidado e a linha de média histórica das semanas.")
     
     if not df.empty:
         sem_cigarros = df[df['categoria'] == 'Cigarro'].groupby('semana_inicio')['amount'].sum().reset_index()
@@ -318,23 +380,56 @@ with tab_evolucao:
         sem_df = pd.merge(sem_cigarros, sem_treinos, on='semana', how='outer').fillna(0).sort_values('semana')
         sem_df['semana_txt'] = sem_df['semana'].apply(lambda d: d.strftime('%d/%m'))
         
+        media_cigarros = sem_df['total_cigarros'].mean()
+        media_treinos = sem_df['total_treinos'].mean()
+        
+        c_m1, c_m2, c_m3 = st.columns(3)
+        c_m1.metric("📊 Média Semanal de Cigarros", f"{media_cigarros:.1f} un / semana")
+        c_m2.metric("📊 Média Semanal de Treinos", f"{media_treinos:.1f} treinos / semana")
+        c_m3.metric("📅 Total de Semanas Mapeadas", f"{len(sem_df)} semanas")
+        
+        st.divider()
+        
         c_evo1, c_evo2 = st.columns(2)
         with c_evo1:
-            fig_evo_cig = px.line(
-                sem_df, x='semana_txt', y='total_cigarros', 
-                markers=True, title="Total de Cigarros por Semana",
-                labels={'semana_txt': 'Semana', 'total_cigarros': 'Qtd Cigarros'},
-                color_discrete_sequence=['#E11D48']
+            fig_evo_cig = go.Figure()
+            fig_evo_cig.add_trace(go.Bar(
+                x=sem_df['semana_txt'], y=sem_df['total_cigarros'],
+                name="Total na Semana",
+                marker_color="#E11D48"
+            ))
+            fig_evo_cig.add_trace(go.Scatter(
+                x=sem_df['semana_txt'], y=[media_cigarros]*len(sem_df),
+                mode='lines',
+                name=f"Média Geral ({media_cigarros:.1f})",
+                line=dict(color='#0F172A', width=3, dash='dash')
+            ))
+            fig_evo_cig.update_layout(
+                title="Cigarros por Semana vs. Média Histórica",
+                xaxis_title="Semana",
+                yaxis_title="Total de Cigarros",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            fig_evo_cig.update_traces(line=dict(width=3))
             st.plotly_chart(fig_evo_cig, use_container_width=True)
             
         with c_evo2:
-            fig_evo_ex = px.bar(
-                sem_df, x='semana_txt', y='total_treinos', 
-                title="Sessões de Exercício por Semana",
-                labels={'semana_txt': 'Semana', 'total_treinos': 'Treinos'},
-                color_discrete_sequence=['#10B981']
+            fig_evo_ex = go.Figure()
+            fig_evo_ex.add_trace(go.Bar(
+                x=sem_df['semana_txt'], y=sem_df['total_treinos'],
+                name="Treinos na Semana",
+                marker_color="#10B981"
+            ))
+            fig_evo_ex.add_trace(go.Scatter(
+                x=sem_df['semana_txt'], y=[media_treinos]*len(sem_df),
+                mode='lines',
+                name=f"Média Geral ({media_treinos:.1f})",
+                line=dict(color='#0F172A', width=3, dash='dash')
+            ))
+            fig_evo_ex.update_layout(
+                title="Treinos por Semana vs. Média Histórica",
+                xaxis_title="Semana",
+                yaxis_title="Sessões de Treino",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig_evo_ex, use_container_width=True)
 
@@ -385,6 +480,85 @@ with tab_novo:
             )
             st.success("Registro salvo com sucesso!")
             st.rerun()
+
+with tab_editar:
+    st.header("Gerenciador de Registros (Editar / Excluir)")
+    st.caption("Selecione qualquer registro para corrigir dados ou remover.")
+    
+    if df.empty:
+        st.info("Nenhum dado encontrado para edição.")
+    else:
+        def format_record(r):
+            tipo_txt = f" - {r['tipo']}" if pd.notnull(r['tipo']) and str(r['tipo']) != 'None' else ""
+            qtd_txt = f" ({int(r['amount'])}x)" if pd.notnull(r['amount']) and r['amount'] > 0 else ""
+            nota_prev = f" | {r['nota'][:30]}..." if pd.notnull(r['nota']) and str(r['nota']) != 'None' and len(str(r['nota'])) > 0 else ""
+            return f"ID {r['id']} | {r['timestamp']} | {r['categoria']}{tipo_txt}{qtd_txt}{nota_prev}"
+        
+        reg_ids = df['id'].tolist()
+        dict_labels = {r['id']: format_record(r) for _, r in df.iterrows()}
+        
+        sel_id = st.selectbox("Escolha o registro para editar ou deletar:", reg_ids, format_func=lambda x: dict_labels[x])
+        reg_atual = df[df['id'] == sel_id].iloc[0]
+        
+        st.divider()
+        
+        with st.form("form_edicao"):
+            st.subheader(f"Editando Registro ID #{sel_id}")
+            
+            ed_col1, ed_col2, ed_col3 = st.columns(3)
+            with ed_col1:
+                ed_timestamp = st.text_input("Data e Hora (YYYY-MM-DD HH:MM:SS):", value=str(reg_atual['timestamp']))
+                ed_cat = st.selectbox("Categoria:", ["Cigarro", "Exercício", "Bebida", "Humor", "Estudo", "Leitura", "Outro"], 
+                                      index=["Cigarro", "Exercício", "Bebida", "Humor", "Estudo", "Leitura", "Outro"].index(reg_atual['categoria']) if reg_atual['categoria'] in ["Cigarro", "Exercício", "Bebida", "Humor", "Estudo", "Leitura", "Outro"] else 0)
+            with ed_col2:
+                ed_local = st.selectbox("Local:", ["São Paulo", "Caçapava", "Estrada / Deslocamento", "Goiânia", "Viagem"],
+                                        index=["São Paulo", "Caçapava", "Estrada / Deslocamento", "Goiânia", "Viagem"].index(reg_atual['local']) if reg_atual['local'] in ["São Paulo", "Caçapava", "Estrada / Deslocamento", "Goiânia", "Viagem"] else 0)
+                ed_amount = st.number_input("Quantidade:", min_value=0.0, step=1.0, value=float(reg_atual['amount']) if pd.notnull(reg_atual['amount']) else 0.0)
+            with ed_col3:
+                ed_tipo = st.text_input("Tipo / Modalidade:", value=str(reg_atual['tipo']) if pd.notnull(reg_atual['tipo']) and str(reg_atual['tipo']) != 'None' else "")
+                ed_duracao = st.number_input("Duração (min):", min_value=0.0, step=5.0, value=float(reg_atual['duracao']) if pd.notnull(reg_atual['duracao']) else 0.0)
+                
+            ed_col4, ed_col5 = st.columns(2)
+            with ed_col4:
+                ed_calorias = st.number_input("Calorias (kcal):", min_value=0.0, step=10.0, value=float(reg_atual['calorias']) if pd.notnull(reg_atual['calorias']) else 0.0)
+                ed_mood = st.text_input("Humor / Sentimento:", value=str(reg_atual['mood']) if pd.notnull(reg_atual['mood']) and str(reg_atual['mood']) != 'None' else "")
+            with ed_col5:
+                gatilhos_list = [
+                    "Nenhum / Rotina", "Pós-Reunião / Trabalho", "Ansiedade / Início de Semana", 
+                    "Transição de Viagem / Posto", "Fim de Noite / Ócio / YouTube", 
+                    "Social / Cerveja", "Conflito Emocional / Raiva", "Pausa de Estudo"
+                ]
+                idx_gat = gatilhos_list.index(reg_atual['gatilho']) if pd.notnull(reg_atual['gatilho']) and reg_atual['gatilho'] in gatilhos_list else 0
+                ed_gatilho = st.selectbox("Gatilho Identificado:", gatilhos_list, index=idx_gat)
+                
+            ed_nota = st.text_area("Nota / Observação:", value=str(reg_atual['nota']) if pd.notnull(reg_atual['nota']) and str(reg_atual['nota']) != 'None' else "")
+            
+            btn_salvar = st.form_submit_button("💾 Salvar Alterações", use_container_width=True, type="primary")
+            if btn_salvar:
+                update_event(
+                    record_id=sel_id,
+                    timestamp=ed_timestamp,
+                    categoria=ed_cat,
+                    local=ed_local,
+                    amount=ed_amount if ed_amount > 0 else None,
+                    tipo=ed_tipo if ed_tipo else None,
+                    duracao=ed_duracao if ed_duracao > 0 else None,
+                    calorias=ed_calorias if ed_calorias > 0 else None,
+                    mood=ed_mood if ed_mood else None,
+                    gatilho=ed_gatilho if ed_gatilho != "Nenhum / Rotina" else None,
+                    nota=ed_nota if ed_nota else None
+                )
+                st.success("Registro atualizado com sucesso!")
+                st.rerun()
+                
+        st.write("---")
+        st.subheader("Zona de Perigo")
+        col_del1, _ = st.columns([1, 4])
+        with col_del1:
+            if st.button("🗑️ Excluir Registro", type="secondary", use_container_width=True):
+                delete_event(sel_id)
+                st.toast(f"Registro #{sel_id} excluído com sucesso!", icon="🗑️")
+                st.rerun()
 
 with tab_dados:
     st.header("Base de Dados Completa")
