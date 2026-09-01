@@ -8,14 +8,14 @@ from datetime import datetime, timedelta
 import os
 
 st.set_page_config(
-    page_title="Life Logger - Hábitos & Comportamento",
+    page_title="Life Logger - Hábitos & Rotina",
     page_icon="🧭",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # -------------------------------------------------------------
-# DATABASE SETUP & INITIAL MIGRATION
+# DATABASE CONFIGURATION
 # -------------------------------------------------------------
 DB_PATH = "life_logger.db"
 
@@ -43,7 +43,6 @@ def init_db():
             value TEXT
         )
     """)
-    # Set default location if not present
     c.execute("INSERT OR IGNORE INTO app_state (key, value) VALUES ('current_location', 'São Paulo')")
     conn.commit()
     conn.close()
@@ -81,11 +80,15 @@ def load_data():
     conn.close()
     if not df.empty:
         df['dt'] = pd.to_datetime(df['timestamp'])
+        df['data_apenas'] = df['dt'].dt.date
         df['hora'] = df['dt'].dt.hour
         df['dia_semana'] = df['dt'].dt.day_name().map({
             'Monday': 'Segunda', 'Tuesday': 'Terça', 'Wednesday': 'Quarta',
             'Thursday': 'Quinta', 'Friday': 'Sexta', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
         })
+        df['semana_inicio'] = df['dt'].apply(lambda d: d.date() - timedelta(days=d.weekday()))
+        df['semana_rotulo'] = df['semana_inicio'].apply(lambda d: f"Semana {d.strftime('%d/%m')}")
+        
         def get_p(h):
             if 5 <= h < 12: return 'Manhã (05h-12h)'
             elif 12 <= h < 18: return 'Tarde (12h-18h)'
@@ -96,7 +99,6 @@ def load_data():
 
 init_db()
 
-# Check if database is empty, seed with initial excel if available
 conn = sqlite3.connect(DB_PATH)
 count = conn.cursor().execute("SELECT count(*) FROM habits").fetchone()[0]
 conn.close()
@@ -109,7 +111,6 @@ if count == 0 and os.path.exists('life-logger1 .xlsx'):
         raw['dt_brt'] = raw['dt_utc'] - pd.Timedelta(hours=3)
         raw = raw.sort_values('dt_brt').reset_index(drop=True)
         
-        # State persistence / forward fill for location
         def clean_l(l):
             l = str(l).strip()
             if l.lower() in ['sp', 'são paulo', 'sao paulo']: return 'São Paulo'
@@ -140,64 +141,223 @@ if count == 0 and os.path.exists('life-logger1 .xlsx'):
         conn.commit()
         conn.close()
     except Exception as e:
-        st.warning(f"Aviso ao carregar histórico inicial: {e}")
+        st.warning(f"Aviso ao migrar: {e}")
 
 # -------------------------------------------------------------
-# SIDEBAR: PERSISTENT STATE & FAST CONTROLS
+# SIDEBAR: PERSISTÊNCIA & REGISTRO RÁPIDO
 # -------------------------------------------------------------
 curr_loc = get_current_location()
 
-st.sidebar.title("🧭 Estado Atual")
+st.sidebar.title("🧭 Life Logger")
 st.sidebar.markdown(f"**Local Ativo:** `{curr_loc}`")
 
 loc_options = ["São Paulo", "Caçapava", "Estrada / Deslocamento", "Goiânia", "Viagem"]
 new_loc = st.sidebar.selectbox("Alterar Localização:", loc_options, index=loc_options.index(curr_loc) if curr_loc in loc_options else 0)
-if st.sidebar.button("Atualizar Local"):
+if st.sidebar.button("Atualizar Local", use_container_width=True):
     set_current_location(new_loc)
-    st.sidebar.success(f"Local alterado para: {new_loc}")
+    st.sidebar.success(f"Local: {new_loc}")
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.subheader("⚡ Registro Rápido (1 Toque)")
+st.sidebar.subheader("⚡ Registro Rápido (Mais Usados)")
 
-col_b1, col_b2 = st.sidebar.columns(2)
-with col_b1:
+c_col1, c_col2 = st.sidebar.columns([3, 2])
+with c_col1:
     if st.button("🚬 +1 Cigarro", use_container_width=True):
         log_event(categoria="Cigarro", amount=1)
-        st.toast(f"Cigarro registrado em {curr_loc}!", icon="🚬")
+        st.toast(f"+1 Cigarro em {curr_loc}", icon="🚬")
+        st.rerun()
+with c_col2:
+    if st.button("🚬 +2", use_container_width=True):
+        log_event(categoria="Cigarro", amount=2)
+        st.toast(f"+2 Cigarros em {curr_loc}", icon="🚬")
         st.rerun()
 
+st.sidebar.caption("🏋️‍♂️ Treinos Rápidos")
+col_e1, col_e2 = st.sidebar.columns(2)
+with col_e1:
+    if st.button("🏋️ Musculação", help="45 min - 350 kcal", use_container_width=True):
+        log_event(categoria="Exercício", tipo="Musculação", duracao=45, calorias=350, amount=1)
+        st.toast("Treino de Musculação registrado!", icon="💪")
+        st.rerun()
+with col_e2:
+    if st.button("🏃 Corrida", help="5km - 45 min", use_container_width=True):
+        log_event(categoria="Exercício", tipo="Corrida", duracao=45, calorias=450, amount=1, nota="5km")
+        st.toast("Corrida registrada!", icon="🏃")
+        st.rerun()
+
+col_e3, col_e4 = st.sidebar.columns(2)
+with col_e3:
+    if st.button("🏀 Basquete", help="Parque / Quadra", use_container_width=True):
+        log_event(categoria="Exercício", tipo="Basquete", duracao=45, calorias=600, amount=1)
+        st.toast("Basquete registrado!", icon="🏀")
+        st.rerun()
+with col_e4:
+    if st.button("🚴 Bike", help="Ciclismo / Estrada", use_container_width=True):
+        log_event(categoria="Exercício", tipo="Ciclismo", duracao=60, calorias=500, amount=1)
+        st.toast("Pedal registrado!", icon="🚴")
+        st.rerun()
+
+st.sidebar.caption("🍻 Bebidas")
+col_b1, col_b2 = st.sidebar.columns(2)
+with col_b1:
+    if st.button("🍺 Cerveja", use_container_width=True):
+        log_event(categoria="Bebida", tipo="Cerveja", amount=1)
+        st.toast("+1 Cerveja registrada!", icon="🍺")
+        st.rerun()
 with col_b2:
-    if st.button("💧 +1 Água", use_container_width=True):
-        log_event(categoria="Água", amount=1)
-        st.toast("Água registrada!", icon="💧")
+    if st.button("🍷 Vinho", use_container_width=True):
+        log_event(categoria="Bebida", tipo="Vinho", amount=1)
+        st.toast("+1 Taça de Vinho registrada!", icon="🍷")
         st.rerun()
 
 # -------------------------------------------------------------
 # MAIN APP TABS
 # -------------------------------------------------------------
-tab_reg, tab_dash, tab_dados = st.tabs(["📝 Novo Registro", "📊 Análise & Dashboard", "🗄️ Dados Históricos"])
+tab_semana, tab_evolucao, tab_novo, tab_dados = st.tabs([
+    "📅 Visão Semanal", 
+    "📈 Evolução & Histórico", 
+    "📝 Registro Detalhado", 
+    "🗄️ Dados Brutos"
+])
 
-with tab_reg:
+df = load_data()
+
+with tab_semana:
+    st.header("Acompanhamento Semanal")
+    st.caption("Visão focada na sua rotina recente para tomada de decisão no dia a dia.")
+    
+    if df.empty:
+        st.info("Nenhum dado registrado.")
+    else:
+        todas_semanas = sorted(df['semana_inicio'].unique(), reverse=True)
+        semanas_dict = {
+            s: f"Semana de {s.strftime('%d/%m/%Y')} a {(s + timedelta(days=6)).strftime('%d/%m/%Y')}"
+            for s in todas_semanas
+        }
+        
+        col_filtro, _ = st.columns([2, 2])
+        with col_filtro:
+            semana_sel = st.selectbox(
+                "Selecione a Semana:", 
+                options=todas_semanas, 
+                format_func=lambda s: semanas_dict[s]
+            )
+            
+        df_sem = df[df['semana_inicio'] == semana_sel].copy()
+        
+        cigs_sem = df_sem[df_sem['categoria'] == 'Cigarro']
+        exs_sem = df_sem[df_sem['categoria'] == 'Exercício']
+        beb_sem = df_sem[df_sem['categoria'] == 'Bebida']
+        
+        tot_cigarros = int(cigs_sem['amount'].sum()) if not cigs_sem.empty else 0
+        tot_treinos = len(exs_sem)
+        tot_tempo_treino = int(exs_sem['duracao'].sum()) if not exs_sem.empty else 0
+        tot_bebidas = int(beb_sem['amount'].sum()) if not beb_sem.empty else 0
+        
+        semana_ant = semana_sel - timedelta(days=7)
+        df_ant = df[df['semana_inicio'] == semana_ant]
+        cigs_ant = int(df_ant[df_ant['categoria'] == 'Cigarro']['amount'].sum()) if not df_ant.empty else 0
+        exs_ant = len(df_ant[df_ant['categoria'] == 'Exercício']) if not df_ant.empty else 0
+        
+        diff_cigs = tot_cigarros - cigs_ant if cigs_ant > 0 else None
+        diff_exs = tot_treinos - exs_ant if exs_ant > 0 else None
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("🚬 Cigarros na Semana", f"{tot_cigarros} un", delta=f"{diff_cigs:+d} vs sem. anterior" if diff_cigs is not None else None, delta_color="inverse")
+        m2.metric("🏋️‍♂️ Treinos na Semana", f"{tot_treinos} sessões", delta=f"{diff_exs:+d} vs sem. anterior" if diff_exs is not None else None)
+        m3.metric("⏱️ Tempo de Treino", f"{tot_tempo_treino} min")
+        m4.metric("🍻 Bebidas", f"{tot_bebidas} un")
+        
+        st.divider()
+        
+        g1, g2 = st.columns(2)
+        dias_ordem = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+        
+        with g1:
+            st.subheader("Cigarros por Dia (Nesta Semana)")
+            cigs_dias = cigs_sem.groupby('dia_semana')['amount'].sum().reindex(dias_ordem, fill_value=0).reset_index()
+            fig_sem_c = px.bar(
+                cigs_dias, x='dia_semana', y='amount', 
+                labels={'dia_semana': 'Dia', 'amount': 'Cigarros'},
+                text='amount',
+                color='amount',
+                color_continuous_scale='Reds'
+            )
+            fig_sem_c.update_traces(textposition='outside')
+            st.plotly_chart(fig_sem_c, use_container_width=True)
+            
+        with g2:
+            st.subheader("Treinos por Dia (Nesta Semana)")
+            exs_dias = exs_sem.groupby('dia_semana')['id'].count().reindex(dias_ordem, fill_value=0).reset_index()
+            fig_sem_e = px.bar(
+                exs_dias, x='dia_semana', y='id', 
+                labels={'dia_semana': 'Dia', 'id': 'Treinos'},
+                text='id',
+                color='id',
+                color_continuous_scale='Greens'
+            )
+            fig_sem_e.update_traces(textposition='outside')
+            st.plotly_chart(fig_sem_e, use_container_width=True)
+            
+        st.subheader("Eventos Registrados Nesta Semana")
+        cols_view = ['timestamp', 'categoria', 'local', 'tipo', 'amount', 'duracao', 'gatilho', 'mood', 'nota']
+        st.dataframe(df_sem[cols_view], use_container_width=True)
+
+with tab_evolucao:
+    st.header("Evolução Semanal Comparativa")
+    st.caption("Acompanhe a tendência de redução de fumo e frequência de treinos.")
+    
+    if not df.empty:
+        sem_cigarros = df[df['categoria'] == 'Cigarro'].groupby('semana_inicio')['amount'].sum().reset_index()
+        sem_cigarros.columns = ['semana', 'total_cigarros']
+        
+        sem_treinos = df[df['categoria'] == 'Exercício'].groupby('semana_inicio')['id'].count().reset_index()
+        sem_treinos.columns = ['semana', 'total_treinos']
+        
+        sem_df = pd.merge(sem_cigarros, sem_treinos, on='semana', how='outer').fillna(0).sort_values('semana')
+        sem_df['semana_txt'] = sem_df['semana'].apply(lambda d: d.strftime('%d/%m'))
+        
+        c_evo1, c_evo2 = st.columns(2)
+        with c_evo1:
+            fig_evo_cig = px.line(
+                sem_df, x='semana_txt', y='total_cigarros', 
+                markers=True, title="Total de Cigarros por Semana",
+                labels={'semana_txt': 'Semana', 'total_cigarros': 'Qtd Cigarros'},
+                color_discrete_sequence=['#E11D48']
+            )
+            fig_evo_cig.update_traces(line=dict(width=3))
+            st.plotly_chart(fig_evo_cig, use_container_width=True)
+            
+        with c_evo2:
+            fig_evo_ex = px.bar(
+                sem_df, x='semana_txt', y='total_treinos', 
+                title="Sessões de Exercício por Semana",
+                labels={'semana_txt': 'Semana', 'total_treinos': 'Treinos'},
+                color_discrete_sequence=['#10B981']
+            )
+            st.plotly_chart(fig_evo_ex, use_container_width=True)
+
+with tab_novo:
     st.header("Novo Registro Detalhado")
-    st.caption("Todos os novos registros herdam automaticamente o local ativo, a menos que você mude.")
+    st.caption(f"Local herdado automaticamente: **{curr_loc}**")
     
     with st.form("form_registro", clear_on_submit=True):
-        f_cat = st.selectbox("Categoria:", ["Cigarro", "Exercício", "Bebida", "Humor", "Água", "Leitura", "Outro"])
+        f_cat = st.selectbox("Categoria:", ["Cigarro", "Exercício", "Bebida", "Humor", "Estudo", "Leitura", "Outro"])
         
         c1, c2, c3 = st.columns(3)
         with c1:
-            f_amount = st.number_input("Quantidade (unidades, copos, etc.):", min_value=0.0, step=1.0, value=1.0)
+            f_amount = st.number_input("Quantidade (unidades, doses):", min_value=0.0, step=1.0, value=1.0)
         with c2:
-            f_tipo = st.text_input("Tipo / Modalidade (ex: Musculação, Corrida, Vinho, Cerveja):")
+            f_tipo = st.text_input("Tipo / Modalidade (Musculação, Corrida, Vinho, etc.):")
         with c3:
-            f_duracao = st.number_input("Duração (minutos, se aplicável):", min_value=0.0, step=5.0, value=0.0)
+            f_duracao = st.number_input("Duração em minutos (se treino):", min_value=0.0, step=5.0, value=0.0)
             
         c4, c5 = st.columns(2)
         with c4:
             f_calorias = st.number_input("Calorias estimadas (kcal):", min_value=0.0, step=10.0, value=0.0)
         with c5:
-            f_gatilho = st.selectbox("Gatilho Identificado:", [
+            f_gatilho = st.selectbox("Gatilho Emocional / Situação:", [
                 "Nenhum / Rotina",
                 "Pós-Reunião / Trabalho",
                 "Ansiedade / Início de Semana",
@@ -208,8 +368,8 @@ with tab_reg:
                 "Pausa de Estudo"
             ])
             
-        f_mood = st.text_input("Estado de Humor / Sentimento (ex: Ansioso, Relaxado, Cansado):")
-        f_nota = st.text_area("Nota / Detalhes Emocionais do Momento:")
+        f_mood = st.text_input("Estado de Humor / Sentimento:")
+        f_nota = st.text_area("Nota contextual do momento:")
         
         submit = st.form_submit_button("Salvar Registro Completo", use_container_width=True)
         if submit:
@@ -223,54 +383,8 @@ with tab_reg:
                 gatilho=f_gatilho if f_gatilho != "Nenhum / Rotina" else None,
                 nota=f_nota if f_nota else None
             )
-            st.success("Registro adicionado com sucesso!")
+            st.success("Registro salvo com sucesso!")
             st.rerun()
-
-with tab_dash:
-    st.header("Painel de Hábitos & Comportamento")
-    df = load_data()
-    
-    if df.empty:
-        st.info("Nenhum dado encontrado para análise.")
-    else:
-        cigs = df[df['categoria'] == 'Cigarro']
-        exs = df[df['categoria'] == 'Exercício']
-        
-        # Metrics Row
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Cigarros", f"{int(cigs['amount'].sum())} un")
-        m2.metric("Sessões de Fumo", f"{len(cigs)} eventos")
-        m3.metric("Sessões de Treino", f"{len(exs)} treinos")
-        m4.metric("Turno Pico de Fumo", "Noite / Madrugada")
-        
-        st.divider()
-        
-        g1, g2 = st.columns(2)
-        with g1:
-            st.subheader("Cigarros por Localidade (Herança Ativa)")
-            cigs_loc = cigs.groupby('local')['amount'].sum().reset_index()
-            fig_loc = px.bar(cigs_loc, x='local', y='amount', color='local', title="Consumo Total por Local")
-            st.plotly_chart(fig_loc, use_container_width=True)
-            
-        with g2:
-            st.subheader("Cigarros por Turno do Dia")
-            cigs_turn = cigs.groupby('turno')['amount'].sum().reindex(['Manhã (05h-12h)', 'Tarde (12h-18h)', 'Noite (18h-23h)', 'Madrugada (23h-05h)']).dropna().reset_index()
-            fig_turn = px.pie(cigs_turn, names='turno', values='amount', hole=0.4, title="Distribuição por Turno")
-            st.plotly_chart(fig_turn, use_container_width=True)
-            
-        g3, g4 = st.columns(2)
-        with g3:
-            st.subheader("Cigarros por Dia da Semana")
-            dias = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
-            cigs_dias = cigs.groupby('dia_semana')['amount'].sum().reindex(dias).dropna().reset_index()
-            fig_dias = px.bar(cigs_dias, x='dia_semana', y='amount', title="Volume Semanal")
-            st.plotly_chart(fig_dias, use_container_width=True)
-            
-        with g4:
-            st.subheader("Horários dos Exercícios")
-            ex_turn = exs.groupby('turno')['id'].count().reset_index()
-            fig_ex = px.bar(ex_turn, x='turno', y='id', labels={'id': 'Qtd Treinos'}, title="Distribuição dos Treinos por Horário")
-            st.plotly_chart(fig_ex, use_container_width=True)
 
 with tab_dados:
     st.header("Base de Dados Completa")
