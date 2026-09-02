@@ -15,8 +15,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Trava de zoom nos gráficos (mobilidade fluida no celular)
+PLOTLY_CONFIG = {
+    'scrollZoom': False,
+    'displayModeBar': False,
+    'doubleClick': False,
+    'showAxisDragHandles': False
+}
+
+def lock_chart_zoom(fig):
+    fig.update_layout(
+        xaxis=dict(fixedrange=True),
+        yaxis=dict(fixedrange=True),
+        dragmode=False
+    )
+    return fig
+
 # -------------------------------------------------------------
-# BANCO DE DADOS & OPERAÇÕES (CRUD COMPLETO)
+# BANCO DE DADOS & OPERAÇÕES
 # -------------------------------------------------------------
 DB_PATH = "life_logger.db"
 
@@ -36,6 +52,16 @@ def init_db():
             mood TEXT,
             gatilho TEXT,
             nota TEXT
+        )
+    """)
+    # Tabela dedicada para rastrear os acionamentos do botão SOS
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS sos_fissura (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME NOT NULL,
+            local TEXT NOT NULL,
+            acao_escolhida TEXT NOT NULL,
+            conseguiu_evitar INTEGER NOT NULL
         )
     """)
     c.execute("""
@@ -74,6 +100,29 @@ def log_event(categoria, amount=None, tipo=None, duracao=None, calorias=None, mo
     """, (now_str, categoria, loc, amount, tipo, duracao, calorias, mood, gatilho, nota))
     conn.commit()
     conn.close()
+
+def log_sos_tentativa(acao, conseguiu):
+    loc = get_current_location()
+    now_str = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO sos_fissura (timestamp, local, acao_escolhida, conseguiu_evitar)
+        VALUES (?, ?, ?, ?)
+    """, (now_str, loc, acao, 1 if conseguiu else 0))
+    conn.commit()
+    conn.close()
+
+def get_sos_stats():
+    conn = sqlite3.connect(DB_PATH)
+    df_sos = pd.read_sql_query("SELECT * FROM sos_fissura", conn)
+    conn.close()
+    if df_sos.empty:
+        return 0, 0, 0
+    total = len(df_sos)
+    vitorias = int(df_sos['conseguiu_evitar'].sum())
+    taxa = (vitorias / total) * 100 if total > 0 else 0
+    return total, vitorias, taxa
 
 def update_event(record_id, timestamp, categoria, local, amount, tipo, duracao, calorias, mood, gatilho, nota):
     conn = sqlite3.connect(DB_PATH)
@@ -163,44 +212,57 @@ if count == 0 and os.path.exists('life-logger1 .xlsx'):
         st.warning(f"Aviso ao migrar: {e}")
 
 # -------------------------------------------------------------
-# MODAL / DIALOG: PENSANDO EM FUMAR? (SOS ANTITABAGISMO)
+# MODAL SOS ANTIFUMO (SEM ERRO + RASTREAMENTO COMPLETO)
 # -------------------------------------------------------------
 FRASES_MOTIVACIONAIS = [
-    "A fissura aguda dura apenas entre 3 a 5 minutos. Espere a onda química passar!",
-    "Lembre-se: o cigarro não resolve o estresse da reunião, ele apenas cria a abstinência do próximo cigarro.",
-    "Você já treinou e correu com dedicação nesta semana. Não troque sua capacidade pulmonar por 5 minutos de fumaça.",
-    "A fissura é apenas o cérebro pedindo dopamina rápida. Escolha uma dopamina que constrói sua saúde.",
-    "Oxigênio puro no sangue reduz a ansiedade mais rápido que monóxido de carbono. Respire fundo."
+    "A vontade aguda dura apenas entre 3 a 5 minutos. Espere a onda química passar!",
+    "O cigarro não resolve o cansaço ou o estresse, ele apenas programa a abstinência do próximo maço.",
+    "Você já treinou e correu com dedicação nesta semana. Preserve sua capacidade pulmonar.",
+    "A fissura é o cérebro pedindo dopamina barata. Escolha uma pausa que construa você.",
+    "Oxigênio e presença aliviam a ansiedade muito mais rápido que fumaça. Respire fundo."
 ]
 
 @st.dialog("🛑 Pensando em Fumar? Respire Primeiro.")
 def modal_sos_cigarro():
-    frase = random.choice(FRASES_MOTIVACIONAIS)
-    st.info(f"💡 **Ponto de Consciência:**\n\n*{frase}*")
+    if "frase_momento" not in st.session_state:
+        st.session_state["frase_momento"] = random.choice(FRASES_MOTIVACIONAIS)
+        
+    st.info(f"💡 **Ponto de Consciência:**\n\n*{st.session_state['frase_momento']}*")
     
-    st.markdown("### O que fazer AGORA para desarmar o gatilho:")
-    st.markdown("""
-    * **1. Protocolo do Copo D'água:** Beba 1 copo grande de água bem gelada em pequenos goles lentos.
-    * **2. Respiração 4-7-8:** Puxe o ar pelo nariz por 4s, segure por 7s e solte pela boca por 8s (faça 4 repetições).
-    * **3. Mudança de Cenário:** Levante da cadeira, saia da frente da tela ou do cômodo onde está e caminhe um pouco.
-    * **4. Descarga Muscular:** Faça 15 flexões ou 1 minuto de prancha para gastar o pico de ansiedade.
-    * **5. Estímulo Oral Substituto:** Beba café sem cigarro, pegue uma goma de mascar ou água com gás e limão.
-    """)
+    st.markdown("### O que você vai fazer agora para quebrar o impulso?")
+    opcoes_sos = [
+        "🎵 Ouvir uma música relaxante",
+        "🧘 Meditar por 5 minutos",
+        "🐾 Pupa para descomprimir",
+        "💧 Beber 1 copo de água gelada",
+        "🫁 Respiração 4-7-8 (4 ciclos)",
+        "🚶 Sair da tela e caminhar um pouco",
+        "☕ Café sem cigarro / Goma de mascar"
+    ]
+    
+    acao_selecionada = st.radio("Selecione sua estratégia:", opcoes_sos, index=0)
     
     st.divider()
+    st.markdown("**Qual foi o resultado?**")
     col1, col2 = st.columns(2)
+    
     with col1:
-        if st.button("💪 Venci a fissura! (Não vou fumar)", use_container_width=True, type="primary"):
-            st.toast("Muito bom! Cada fissura superada enfraquece o hábito no seu cérebro.", icon="🔥")
+        if st.button("💪 Consegui não fumar!", use_container_width=True, type="primary"):
+            log_sos_tentativa(acao=acao_selecionada, conseguiu=True)
+            st.session_state.pop("frase_momento", None)
+            st.toast("Vitória registrada! Você desarmou a fissura.", icon="🔥")
             st.rerun()
+            
     with col2:
-        if st.button("Fumar mesmo assim", use_container_width=True):
-            log_event(categoria="Cigarro", amount=1, gatilho="Fissura Consciente")
-            st.toast("Registrado com consciência. Repare no que você sentiu.", icon="🚬")
+        if st.button("😔 Não consegui / Fumei", use_container_width=True):
+            log_sos_tentativa(acao=acao_selecionada, conseguiu=False)
+            log_event(categoria="Cigarro", amount=1, gatilho=f"Fissura após: {acao_selecionada}")
+            st.session_state.pop("frase_momento", None)
+            st.toast("Registrado. O importante é manter a consciência para a próxima!", icon="🚬")
             st.rerun()
 
 # -------------------------------------------------------------
-# SIDEBAR: PERSISTÊNCIA & REGISTRO RÁPIDO
+# SIDEBAR: PERSISTÊNCIA, SOS E REGISTRO RÁPIDO
 # -------------------------------------------------------------
 curr_loc = get_current_location()
 
@@ -218,6 +280,10 @@ st.sidebar.divider()
 
 if st.sidebar.button("🛑 Pensando em Fumar?", use_container_width=True, type="primary"):
     modal_sos_cigarro()
+
+total_sos, vitorias_sos, taxa_sos = get_sos_stats()
+if total_sos > 0:
+    st.sidebar.caption(f"🛡️ **SOS Usado:** {total_sos}x | **Vitórias:** {vitorias_sos} ({taxa_sos:.0f}%)")
 
 st.sidebar.divider()
 st.sidebar.subheader("⚡ Registro Rápido (Mais Usados)")
@@ -298,13 +364,16 @@ with tab_semana:
             for s in todas_semanas
         }
         
-        col_filtro, _ = st.columns([2, 2])
+        col_filtro, col_sos_m = st.columns([2, 2])
         with col_filtro:
             semana_sel = st.selectbox(
                 "Selecione a Semana:", 
                 options=todas_semanas, 
                 format_func=lambda s: semanas_dict[s]
             )
+        with col_sos_m:
+            if total_sos > 0:
+                st.info(f"🛡️ **Monitor de Fissuras:** O botão SOS foi acionado **{total_sos} vezes** no total, resultando em **{vitorias_sos} vitórias ({taxa_sos:.0f}% de sucesso)**.")
             
         df_sem = df[df['semana_inicio'] == semana_sel].copy()
         
@@ -347,7 +416,8 @@ with tab_semana:
                 color_continuous_scale='Reds'
             )
             fig_sem_c.update_traces(textposition='outside')
-            st.plotly_chart(fig_sem_c, use_container_width=True)
+            fig_sem_c = lock_chart_zoom(fig_sem_c)
+            st.plotly_chart(fig_sem_c, use_container_width=True, config=PLOTLY_CONFIG)
             
         with g2:
             st.subheader("Treinos por Dia (Nesta Semana)")
@@ -360,7 +430,8 @@ with tab_semana:
                 color_continuous_scale='Greens'
             )
             fig_sem_e.update_traces(textposition='outside')
-            st.plotly_chart(fig_sem_e, use_container_width=True)
+            fig_sem_e = lock_chart_zoom(fig_sem_e)
+            st.plotly_chart(fig_sem_e, use_container_width=True, config=PLOTLY_CONFIG)
             
         st.subheader("Eventos Registrados Nesta Semana")
         cols_view = ['timestamp', 'categoria', 'local', 'tipo', 'amount', 'duracao', 'gatilho', 'mood', 'nota']
@@ -410,7 +481,8 @@ with tab_evolucao:
                 yaxis_title="Total de Cigarros",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            st.plotly_chart(fig_evo_cig, use_container_width=True)
+            fig_evo_cig = lock_chart_zoom(fig_evo_cig)
+            st.plotly_chart(fig_evo_cig, use_container_width=True, config=PLOTLY_CONFIG)
             
         with c_evo2:
             fig_evo_ex = go.Figure()
@@ -431,7 +503,8 @@ with tab_evolucao:
                 yaxis_title="Sessões de Treino",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            st.plotly_chart(fig_evo_ex, use_container_width=True)
+            fig_evo_ex = lock_chart_zoom(fig_evo_ex)
+            st.plotly_chart(fig_evo_ex, use_container_width=True, config=PLOTLY_CONFIG)
 
 with tab_novo:
     st.header("Novo Registro Detalhado")
@@ -571,4 +644,6 @@ with tab_dados:
         data=csv,
         file_name='life_logger_backup.csv',
         mime='text/csv'
+
+        )
     )
