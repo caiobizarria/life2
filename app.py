@@ -278,9 +278,11 @@ if st.sidebar.button("Atualizar Local", use_container_width=True):
 
 st.sidebar.divider()
 
+# BOTÃO SOS ANTIFUMO
 if st.sidebar.button("🛑 Pensando em Fumar?", use_container_width=True, type="primary"):
     modal_sos_cigarro()
 
+# CONTADOR DE USO DO SOS
 total_sos, vitorias_sos, taxa_sos = get_sos_stats()
 if total_sos > 0:
     st.sidebar.caption(f"🛡️ **SOS Usado:** {total_sos}x | **Vitórias:** {vitorias_sos} ({taxa_sos:.0f}%)")
@@ -288,6 +290,7 @@ if total_sos > 0:
 st.sidebar.divider()
 st.sidebar.subheader("⚡ Registro Rápido (Mais Usados)")
 
+# 1. Cigarro
 c_col1, c_col2 = st.sidebar.columns([3, 2])
 with c_col1:
     if st.button("🚬 +1 Cigarro", use_container_width=True):
@@ -300,6 +303,7 @@ with c_col2:
         st.toast(f"+2 Cigarros em {curr_loc}", icon="🚬")
         st.rerun()
 
+# 2. Exercícios Rápidos
 st.sidebar.caption("🏋️‍♂️ Treinos Rápidos")
 col_e1, col_e2 = st.sidebar.columns(2)
 with col_e1:
@@ -325,6 +329,7 @@ with col_e4:
         st.toast("Pedal registrado!", icon="🚴")
         st.rerun()
 
+# 3. Bebidas Rápidas
 st.sidebar.caption("🍻 Bebidas")
 col_b1, col_b2 = st.sidebar.columns(2)
 with col_b1:
@@ -639,11 +644,4 @@ with tab_dados:
     st.dataframe(df_all, use_container_width=True)
     
     csv = df_all.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Baixar Dados em CSV",
-        data=csv,
-        file_name='life_logger_backup.csv',
-        mime='text/csv'
-
-        )
-    )
+    st.download_button(label="📥 Baixar Dados em CSV", data=csv, file_name='life_logger_backup.csv', mime='text/csv')
