@@ -7,6 +7,7 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta, date, time
 import random
 import uuid
+import traceback
 
 st.set_page_config(
     page_title="Life Logger - Hábitos & Rotina",
@@ -77,7 +78,18 @@ def load_habits():
         df['turno'] = df['hora'].apply(get_p)
         return df.sort_values('dt', ascending=False).reset_index(drop=True)
     except Exception as e:
-        st.error(f"⚠️ Erro ao ler aba 'habits' no Google Sheets: {e}")
+        st.error(f"⚠️ Tipo do Erro: {type(e).__name__} | Detalhe: {e}")
+        try:
+            client = conn._instance
+            spreadsheet = client.open_by_url(st.secrets["connections"]["gsheets"]["spreadsheet"])
+            abas_encontradas = [w.title for w in spreadsheet.worksheets()]
+            st.warning(f"🔍 O bot abriu a planilha com sucesso! Abas que ele encontrou: {abas_encontradas}")
+        except Exception as err_diag:
+            st.error(f"❌ Falha ao tentar inspecionar a planilha: {err_diag}")
+            
+        with st.expander("Ver Traceback Técnico"):
+            st.code(traceback.format_exc())
+            
         return pd.DataFrame(columns=COLUNAS_HABITS)
 
 def save_habits(df_to_save):
