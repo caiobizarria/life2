@@ -15,7 +15,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Trava de zoom nos gráficos para navegação fluida em telas touch
 PLOTLY_CONFIG = {
     'scrollZoom': False,
     'displayModeBar': False,
@@ -51,7 +50,6 @@ COLUNAS_SOS = [
 
 def load_habits():
     try:
-        # ttl=0 garante que qualquer edição manual na planilha apareça na hora
         df = conn.read(worksheet=0, ttl=0)
         if df is None or df.empty or df.dropna(how="all").empty:
             return pd.DataFrame(columns=COLUNAS_HABITS)
@@ -163,7 +161,7 @@ def log_sos_tentativa(acao, conseguiu):
 # -------------------------------------------------------------
 FRASES_MOTIVACIONAIS = [
     "A vontade aguda dura apenas entre 3 a 5 minutos. Espere a onda passar!",
-    "O cigarro não resolve a tensão do dia, ele apenas cria a abstinência do próximo maço.",
+    "O cigarro não resolve a tensão do trabalho, ele apenas cria a abstinência do próximo maço.",
     "Você já treinou e correu com dedicação nesta semana. Preserve sua capacidade pulmonar.",
     "A fissura é o cérebro pedindo dopamina rápida. Escolha uma pausa que construa você.",
     "Oxigênio e presença aliviam a ansiedade muito mais rápido que fumaça. Respire fundo."
@@ -310,7 +308,7 @@ with tab_semana:
     st.caption("Conectado diretamente ao Google Sheets em tempo real.")
     
     if df.empty:
-        st.info("Sua planilha está pronta. Faça o primeiro registro pelos atalhos laterais ou lance os dias passados na aba ao lado!")
+        st.info("Sua planilha está pronta. Cole os dados na planilha ou registre pelos atalhos laterais!")
     else:
         todas_semanas = sorted(df['semana_inicio'].unique(), reverse=True)
         semanas_dict = {
@@ -401,7 +399,6 @@ with tab_retroativo:
     with col_d2:
         local_dia = st.selectbox("Local onde passou o dia:", loc_options, index=0)
         
-    # Mostra o que já está lançado nesse dia para não duplicar sem querer
     df_dia_existente = df[df['data_apenas'] == data_alvo] if not df.empty and 'data_apenas' in df.columns else pd.DataFrame()
     if not df_dia_existente.empty:
         cigs_ja = int(df_dia_existente[df_dia_existente['categoria'] == 'Cigarro']['amount'].sum())
@@ -631,7 +628,7 @@ with tab_editar:
                 st.rerun()
 
 # -------------------------------------------------------------
-# TAB 6: DADOS NA NUVEM & RESET TOTAL
+# TAB 6: DADOS NA NUVEM
 # -------------------------------------------------------------
 with tab_dados:
     st.header("Dados Conectados ao Google Sheets")
@@ -639,11 +636,4 @@ with tab_dados:
     st.dataframe(df_cloud, use_container_width=True)
     
     csv_cloud = df_cloud.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Baixar Backup CSV", data=csv_cloud, file_name='life_logger_backup.csv', mime='text/csv')
-    
-    st.divider()
-    if st.button("🚨 Resetar Planilha (Apagar Tudo)", type="secondary"):
-        df_vazio = pd.DataFrame(columns=COLUNAS_HABITS)
-        if save_habits(df_vazio):
-            st.toast("Planilha zerada com sucesso!", icon="🧹")
-            st.rerun()
+    st.download_button(label="📥 Baixar Backup CSV", data=csv_cloud, file_name='backup.csv', mime='text/csv')
