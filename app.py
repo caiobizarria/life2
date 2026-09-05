@@ -76,7 +76,8 @@ def load_habits():
             else: return 'Madrugada (23h-05h)'
         df['turno'] = df['hora'].apply(get_p)
         return df.sort_values('dt', ascending=False).reset_index(drop=True)
-    except Exception:
+    except Exception as e:
+        st.error(f"⚠️ Erro ao ler aba 'habits' no Google Sheets: {e}")
         return pd.DataFrame(columns=COLUNAS_HABITS)
 
 def save_habits(df_to_save):
@@ -85,7 +86,7 @@ def save_habits(df_to_save):
         conn.update(worksheet="habits", data=df_clean)
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar no Google Sheets: {e}")
+        st.error(f"⚠️ Erro ao salvar dados no Google Sheets: {e}")
         return False
 
 def load_sos():
@@ -299,7 +300,7 @@ with tab_semana:
     st.caption("Conectado diretamente ao Google Sheets. Dados permanentes e seguros.")
     
     if df.empty:
-        st.info("Sua planilha está pronta e limpa. Comece preenchendo a semana na aba 'Lançamento Rápido por Dia'!")
+        st.info("Sua planilha está pronta. Comece preenchendo a semana na aba 'Lançamento Rápido por Dia'!")
     else:
         todas_semanas = sorted(df['semana_inicio'].unique(), reverse=True)
         semanas_dict = {
