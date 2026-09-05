@@ -15,6 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Trava de zoom nos gráficos para navegação fluida em telas touch
 PLOTLY_CONFIG = {
     'scrollZoom': False,
     'displayModeBar': False,
@@ -36,7 +37,7 @@ def lock_chart_zoom(fig):
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error(f"Erro ao inicializar conexão: {e}")
+    st.error(f"Erro ao inicializar conexão com Google Sheets: {e}")
     st.stop()
 
 COLUNAS_HABITS = [
@@ -48,26 +49,10 @@ COLUNAS_SOS = [
     "id", "timestamp", "local", "acao_escolhida", "conseguiu_evitar"
 ]
 
-# DIAGNÓSTICO EM TEMPO REAL NO TOPO
-with st.expander("🛠️ Teste de Diagnóstico de Conexão com a Planilha", expanded=False):
-    st.caption("Clique no botão abaixo para verificar se o Google Sheets aceita leitura e gravação.")
-    if st.button("Executar Teste de Conexão Agora"):
-        try:
-            df_test = conn.read(worksheet="habits", ttl=0)
-            st.success(f"Conexão de LEITURA OK! Linhas lidas na aba habits: {len(df_test) if df_test is not None else 0}")
-        except Exception as e_read:
-            st.error(f"Falha na LEITURA da aba habits: {e_read}")
-            
-        try:
-            test_row = pd.DataFrame([{"id": "teste", "timestamp": "2026-01-01 00:00:00", "categoria": "Teste"}])
-            conn.update(worksheet="habits", data=test_row)
-            st.success("Conexão de ESCRITA OK! A planilha aceitou gravação.")
-        except Exception as e_write:
-            st.error(f"Falha na ESCRITA (Google recusou salvar): {e_write}")
-
 def load_habits():
     try:
-        df = conn.read(worksheet="habits", ttl=0)
+        # ttl=0 garante que qualquer edição manual na planilha apareça na hora
+        df = conn.read(worksheet=0, ttl=0)
         if df is None or df.empty or df.dropna(how="all").empty:
             return pd.DataFrame(columns=COLUNAS_HABITS)
         df = df.dropna(how="all")
@@ -97,23 +82,22 @@ def load_habits():
             else: return 'Madrugada (23h-05h)'
         df['turno'] = df['hora'].apply(get_p)
         return df.sort_values('dt', ascending=False).reset_index(drop=True)
-    except Exception as e:
-        st.sidebar.error(f"Aviso de leitura: {e}")
+    except Exception:
         return pd.DataFrame(columns=COLUNAS_HABITS)
 
 def save_habits(df_to_save):
     try:
         df_clean = df_to_save[COLUNAS_HABITS].copy().fillna("")
         df_clean = df_clean.astype(str)
-        conn.update(worksheet="habits", data=df_clean)
+        conn.update(worksheet=0, data=df_clean)
         return True
     except Exception as e:
-        st.error(f"❌ O Google recusou a gravação na planilha: {e}")
+        st.error(f"Erro ao salvar na planilha: {e}")
         return False
 
 def load_sos():
     try:
-        df = conn.read(worksheet="sos_fissura", ttl=0)
+        df = conn.read(worksheet=1, ttl=0)
         if df is None or df.empty or df.dropna(how="all").empty:
             return pd.DataFrame(columns=COLUNAS_SOS)
         return df.dropna(how="all")
@@ -124,10 +108,10 @@ def save_sos(df_to_save):
     try:
         df_clean = df_to_save[COLUNAS_SOS].copy().fillna("")
         df_clean = df_clean.astype(str)
-        conn.update(worksheet="sos_fissura", data=df_clean)
+        conn.update(worksheet=1, data=df_clean)
         return True
     except Exception as e:
-        st.error(f"❌ Erro ao salvar SOS: {e}")
+        st.error(f"Erro ao salvar SOS: {e}")
         return False
 
 def get_current_location():
@@ -179,9 +163,9 @@ def log_sos_tentativa(acao, conseguiu):
 # -------------------------------------------------------------
 FRASES_MOTIVACIONAIS = [
     "A vontade aguda dura apenas entre 3 a 5 minutos. Espere a onda passar!",
-    "O cigarro não resolve a tensão da reunião, ele apenas cria a abstinência do próximo maço.",
+    "O cigarro não resolve a tensão do dia, ele apenas cria a abstinência do próximo maço.",
     "Você já treinou e correu com dedicação nesta semana. Preserve sua capacidade pulmonar.",
-    "A fissura é o cérebro pedindo dopamina barata. Escolha uma pausa que construa você.",
+    "A fissura é o cérebro pedindo dopamina rápida. Escolha uma pausa que construa você.",
     "Oxigênio e presença aliviam a ansiedade muito mais rápido que fumaça. Respire fundo."
 ]
 
@@ -252,7 +236,7 @@ if not df_sos_all.empty and 'conseguiu_evitar' in df_sos_all.columns:
     st.sidebar.caption(f"🛡️ **SOS Usado:** {tot_sos}x | **Vitórias:** {vit_sos} ({taxa_sos:.0f}%)")
 
 st.sidebar.divider()
-st.sidebar.subheader("⚡ Registro Rápido (Agora)")
+st.sidebar.subheader("⚡ Registro Rápido (Hoje)")
 
 c_col1, c_col2 = st.sidebar.columns([3, 2])
 with c_col1:
@@ -271,24 +255,24 @@ col_e1, col_e2 = st.sidebar.columns(2)
 with col_e1:
     if st.button("🏋️ Musculação", help="45 min - 350 kcal", use_container_width=True):
         if log_event_direct(categoria="Exercício", tipo="Musculação", duracao=45, calorias=350, amount=1):
-            st.toast("Musculação salva no Sheets!", icon="💪")
+            st.toast("Musculação salva!", icon="💪")
             st.rerun()
 with col_e2:
     if st.button("🏃 Corrida", help="5km - 45 min", use_container_width=True):
         if log_event_direct(categoria="Exercício", tipo="Corrida", duracao=45, calorias=450, amount=1, nota="5km"):
-            st.toast("Corrida salva no Sheets!", icon="🏃")
+            st.toast("Corrida salva!", icon="🏃")
             st.rerun()
 
 col_e3, col_e4 = st.sidebar.columns(2)
 with col_e3:
     if st.button("🏀 Basquete", use_container_width=True):
         if log_event_direct(categoria="Exercício", tipo="Basquete", duracao=45, calorias=600, amount=1):
-            st.toast("Basquete salvo no Sheets!", icon="🏀")
+            st.toast("Basquete salvo!", icon="🏀")
             st.rerun()
 with col_e4:
     if st.button("🚴 Bike", use_container_width=True):
         if log_event_direct(categoria="Exercício", tipo="Ciclismo", duracao=60, calorias=500, amount=1):
-            st.toast("Pedal salvo no Sheets!", icon="🚴")
+            st.toast("Pedal salvo!", icon="🚴")
             st.rerun()
 
 st.sidebar.caption("🍻 Bebidas")
@@ -301,18 +285,18 @@ with col_b1:
 with col_b2:
     if st.button("🍷 Vinho", use_container_width=True):
         if log_event_direct(categoria="Bebida", tipo="Vinho", amount=1):
-            st.toast("+1 Taça de Vinho salva!", icon="🍷")
+            st.toast("+1 Taça salva!", icon="🍷")
             st.rerun()
 
 # -------------------------------------------------------------
-# MAIN APP TABS
+# ABAS PRINCIPAIS
 # -------------------------------------------------------------
 tab_semana, tab_retroativo, tab_evolucao, tab_novo, tab_editar, tab_dados = st.tabs([
     "📅 Visão Semanal", 
-    "⚡ Lançamento Rápido por Dia",
+    "⚡ Lançar Dia Inteiro (Passado)",
     "📈 Evolução & Histórico", 
     "📝 Registro Detalhado", 
-    "✏️ Editar / Deletar",
+    "✏️ Editar / Deletar Linha",
     "🗄️ Dados na Nuvem"
 ])
 
@@ -323,10 +307,10 @@ df = load_habits()
 # -------------------------------------------------------------
 with tab_semana:
     st.header("Acompanhamento Semanal")
-    st.caption("Conectado ao Google Sheets.")
+    st.caption("Conectado diretamente ao Google Sheets em tempo real.")
     
     if df.empty:
-        st.info("Sua planilha está vazia no momento. Use o botão de diagnóstico no topo para testar a gravação ou clique nos atalhos laterais.")
+        st.info("Sua planilha está pronta. Faça o primeiro registro pelos atalhos laterais ou lance os dias passados na aba ao lado!")
     else:
         todas_semanas = sorted(df['semana_inicio'].unique(), reverse=True)
         semanas_dict = {
@@ -400,87 +384,95 @@ with tab_semana:
             fig_sem_e = lock_chart_zoom(fig_sem_e)
             st.plotly_chart(fig_sem_e, use_container_width=True, config=PLOTLY_CONFIG)
             
-        st.subheader("Eventos Registrados Nesta Semana")
+        st.subheader("Eventos Desta Semana")
         cols_view = ['timestamp', 'categoria', 'local', 'tipo', 'amount', 'duracao', 'gatilho', 'mood', 'nota']
         st.dataframe(df_sem[cols_view], use_container_width=True)
 
 # -------------------------------------------------------------
-# TAB 2: LANÇAMENTO RÁPIDO POR DIA
+# TAB 2: LANÇAR DIA INTEIRO (RETROATIVO INTELIGENTE)
 # -------------------------------------------------------------
 with tab_retroativo:
-    st.header("⚡ Lançamento Inteligente por Dia")
+    st.header("⚡ Lançar Dia Completo (Segunda, Terça, Quarta...)")
+    st.markdown("Preencha o total consolidado de qualquer dia em um único formulário.")
     
-    with st.form("form_lote_dia", clear_on_submit=False):
-        c_dia1, c_dia2 = st.columns(2)
-        with c_dia1:
-            data_alvo = st.date_input("Data do Dia a Registrar:", value=date.today())
-        with c_dia2:
-            local_dia = st.selectbox("Onde você estava nesse dia?", loc_options, index=0)
-            
-        st.subheader("1. Cigarros do Dia")
-        qtd_cigarros_dia = st.number_input("Total de Cigarros fumados no dia:", min_value=0, step=1, value=0)
-        gatilho_cigarro = st.selectbox("Gatilho principal:", [
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        data_alvo = st.date_input("Escolha a Data do Dia:", value=date.today() - timedelta(days=1))
+    with col_d2:
+        local_dia = st.selectbox("Local onde passou o dia:", loc_options, index=0)
+        
+    # Mostra o que já está lançado nesse dia para não duplicar sem querer
+    df_dia_existente = df[df['data_apenas'] == data_alvo] if not df.empty and 'data_apenas' in df.columns else pd.DataFrame()
+    if not df_dia_existente.empty:
+        cigs_ja = int(df_dia_existente[df_dia_existente['categoria'] == 'Cigarro']['amount'].sum())
+        treinos_ja = len(df_dia_existente[df_dia_existente['categoria'] == 'Exercício'])
+        st.info(f"ℹ️ **Nesse dia já constam:** {cigs_ja} cigarros e {treinos_ja} treinos registrados.")
+    
+    with st.form("form_dia_fechado"):
+        st.subheader("1. Cigarros Fumados no Dia")
+        cigs_qtd = st.number_input("Total de cigarros fumados no dia:", min_value=0, step=1, value=0)
+        gatilho_dia = st.selectbox("Gatilho principal desse dia:", [
             "Nenhum / Rotina", "Pós-Reunião / Trabalho", "Ansiedade / Início de Semana", 
             "Transição de Viagem / Posto", "Fim de Noite / Ócio / YouTube", 
             "Social / Cerveja", "Conflito Emocional / Raiva"
         ])
         
-        st.subheader("2. Treino / Exercício do Dia")
-        teve_treino = st.checkbox("Teve treino nesse dia?")
+        st.subheader("2. Exercício / Treino do Dia")
+        fez_treino = st.checkbox("Teve treino nesse dia?")
         col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
-            tipo_treino = st.selectbox("Modalidade:", ["Musculação", "Corrida", "Basquete", "Ciclismo", "Yoga", "Outro"], disabled=not teve_treino)
+            treino_mod = st.selectbox("Modalidade:", ["Musculação", "Corrida", "Basquete", "Ciclismo", "Yoga", "Outro"], disabled=not fez_treino)
         with col_t2:
-            duracao_treino = st.number_input("Duração (min):", min_value=0, step=5, value=45, disabled=not teve_treino)
+            treino_dur = st.number_input("Duração em minutos:", min_value=0, step=5, value=45, disabled=not fez_treino)
         with col_t3:
-            calorias_treino = st.number_input("Calorias (kcal):", min_value=0, step=10, value=350, disabled=not teve_treino)
+            treino_cal = st.number_input("Calorias gastas (kcal):", min_value=0, step=10, value=350, disabled=not fez_treino)
             
         st.subheader("3. Bebidas & Observações")
-        qtd_bebida = st.number_input("Bebidas alcoólicas (doses/latas):", min_value=0, step=1, value=0)
-        nota_dia = st.text_area("Observações:")
+        bebidas_qtd = st.number_input("Bebidas alcoólicas (doses / garrafas):", min_value=0, step=1, value=0)
+        nota_dia = st.text_area("Observação sobre o dia / Humor:")
         
-        btn_salvar_dia = st.form_submit_button("🚀 Salvar Dia Completo no Google Sheets", use_container_width=True, type="primary")
-        if btn_salvar_dia:
-            ts_base = f"{data_alvo.strftime('%Y-%m-%d')} 18:00:00"
-            linhas_novas = []
+        btn_gravar_dia = st.form_submit_button("🚀 Gravar Dia no Google Sheets", use_container_width=True, type="primary")
+        if btn_gravar_dia:
+            novas_linhas = []
+            dia_str = data_alvo.strftime('%Y-%m-%d')
             
-            if qtd_cigarros_dia > 0:
-                linhas_novas.append({
+            if cigs_qtd > 0:
+                novas_linhas.append({
                     "id": str(uuid.uuid4())[:8],
-                    "timestamp": ts_base,
+                    "timestamp": f"{dia_str} 18:00:00",
                     "categoria": "Cigarro",
                     "local": local_dia,
-                    "amount": qtd_cigarros_dia,
+                    "amount": cigs_qtd,
                     "tipo": None,
                     "duracao": None,
                     "calorias": None,
                     "mood": None,
-                    "gatilho": gatilho_cigarro if gatilho_cigarro != "Nenhum / Rotina" else None,
+                    "gatilho": gatilho_dia if gatilho_dia != "Nenhum / Rotina" else None,
                     "nota": nota_dia if nota_dia else None
                 })
                 
-            if teve_treino and duracao_treino > 0:
-                linhas_novas.append({
+            if fez_treino and treino_dur > 0:
+                novas_linhas.append({
                     "id": str(uuid.uuid4())[:8],
-                    "timestamp": f"{data_alvo.strftime('%Y-%m-%d')} 16:00:00",
+                    "timestamp": f"{dia_str} 16:00:00",
                     "categoria": "Exercício",
                     "local": local_dia,
                     "amount": 1,
-                    "tipo": tipo_treino,
-                    "duracao": duracao_treino,
-                    "calorias": calorias_treino,
+                    "tipo": treino_mod,
+                    "duracao": treino_dur,
+                    "calorias": treino_cal,
                     "mood": None,
                     "gatilho": None,
                     "nota": "Lançamento em lote do dia"
                 })
                 
-            if qtd_bebida > 0:
-                linhas_novas.append({
+            if bebidas_qtd > 0:
+                novas_linhas.append({
                     "id": str(uuid.uuid4())[:8],
-                    "timestamp": f"{data_alvo.strftime('%Y-%m-%d')} 21:00:00",
+                    "timestamp": f"{dia_str} 21:00:00",
                     "categoria": "Bebida",
                     "local": local_dia,
-                    "amount": qtd_bebida,
+                    "amount": bebidas_qtd,
                     "tipo": "Bebida",
                     "duracao": None,
                     "calorias": None,
@@ -489,19 +481,21 @@ with tab_retroativo:
                     "nota": None
                 })
                 
-            if linhas_novas:
+            if novas_linhas:
                 df_cur = load_habits()
-                df_novas = pd.DataFrame(linhas_novas)
+                df_novas = pd.DataFrame(novas_linhas)
                 df_updated = pd.concat([df_novas, df_cur[COLUNAS_HABITS]], ignore_index=True) if not df_cur.empty else df_novas
                 if save_habits(df_updated):
-                    st.success(f"Dia {data_alvo.strftime('%d/%m/%Y')} gravado no Google Sheets!")
+                    st.success(f"Dia {data_alvo.strftime('%d/%m/%Y')} gravado com sucesso no Google Sheets!")
                     st.rerun()
+            else:
+                st.warning("Preencha pelo menos um hábito (cigarro, treino ou bebida) para salvar.")
 
 # -------------------------------------------------------------
 # TAB 3: EVOLUÇÃO HISTÓRICA
 # -------------------------------------------------------------
 with tab_evolucao:
-    st.header("Evolução Semanal")
+    st.header("Evolução Semanal Comparativa")
     if not df.empty:
         sem_cigarros = df[df['categoria'] == 'Cigarro'].groupby('semana_inicio')['amount'].sum().reset_index()
         sem_cigarros.columns = ['semana', 'total_cigarros']
@@ -518,7 +512,7 @@ with tab_evolucao:
         c_m1, c_m2, c_m3 = st.columns(3)
         c_m1.metric("📊 Média Cigarros/Semana", f"{media_cigarros:.1f}")
         c_m2.metric("📊 Média Treinos/Semana", f"{media_treinos:.1f}")
-        c_m3.metric("📅 Total de Semanas", f"{len(sem_df)}")
+        c_m3.metric("📅 Semanas Mapeadas", f"{len(sem_df)}")
         
         c_evo1, c_evo2 = st.columns(2)
         with c_evo1:
@@ -536,10 +530,10 @@ with tab_evolucao:
             st.plotly_chart(fig_evo_ex, use_container_width=True, config=PLOTLY_CONFIG)
 
 # -------------------------------------------------------------
-# TAB 4: NOVO REGISTRO DETALHADO
+# TAB 4: NOVO REGISTRO AVULSO
 # -------------------------------------------------------------
 with tab_novo:
-    st.header("Novo Registro Detalhado")
+    st.header("Novo Registro Avulso (Data e Hora Personalizadas)")
     with st.form("form_registro_avulso", clear_on_submit=True):
         col_dt1, col_dt2 = st.columns(2)
         with col_dt1:
@@ -590,12 +584,22 @@ with tab_novo:
 # TAB 5: EDITAR / DELETAR
 # -------------------------------------------------------------
 with tab_editar:
-    st.header("Gerenciador de Registros")
+    st.header("Gerenciador de Linhas da Planilha")
+    st.caption("Qualquer alteração feita aqui atualiza o Google Sheets imediatamente.")
+    
     if df.empty:
-        st.info("Nenhum dado encontrado.")
+        st.info("Nenhum dado encontrado para edição.")
     else:
+        def format_record(r):
+            tipo_txt = f" - {r['tipo']}" if pd.notnull(r['tipo']) and str(r['tipo']) != 'None' and str(r['tipo']) != '' else ""
+            qtd_txt = f" ({int(r['amount'])}x)" if pd.notnull(r['amount']) and r['amount'] > 0 else ""
+            nota_prev = f" | {str(r['nota'])[:20]}..." if pd.notnull(r['nota']) and str(r['nota']) != 'None' and len(str(r['nota'])) > 0 else ""
+            return f"ID {r['id']} | {str(r['timestamp'])[:16]} | {r['categoria']}{tipo_txt}{qtd_txt}{nota_prev}"
+        
         reg_ids = df['id'].astype(str).tolist()
-        sel_id = st.selectbox("Escolha o registro:", reg_ids)
+        dict_labels = {str(r['id']): format_record(r) for _, r in df.iterrows()}
+        
+        sel_id = st.selectbox("Escolha a linha para alterar:", reg_ids, format_func=lambda x: dict_labels.get(x, x))
         reg_atual = df[df['id'].astype(str) == sel_id].iloc[0]
         
         with st.form("form_edicao_sheets"):
@@ -603,6 +607,7 @@ with tab_editar:
             cats = ["Cigarro", "Exercício", "Bebida", "Humor", "Estudo", "Leitura", "Outro"]
             ed_cat = st.selectbox("Categoria:", cats, index=cats.index(reg_atual['categoria']) if reg_atual['categoria'] in cats else 0)
             ed_amount = st.number_input("Quantidade:", min_value=0.0, step=1.0, value=float(reg_atual['amount']) if pd.notnull(reg_atual['amount']) else 0.0)
+            ed_tipo = st.text_input("Tipo / Modalidade:", value=str(reg_atual['tipo']) if pd.notnull(reg_atual['tipo']) and str(reg_atual['tipo']) != 'None' else "")
             ed_nota = st.text_area("Nota:", value=str(reg_atual['nota']) if pd.notnull(reg_atual['nota']) and str(reg_atual['nota']) != 'None' else "")
             
             if st.form_submit_button("Salvar Modificação", use_container_width=True, type="primary"):
@@ -611,10 +616,19 @@ with tab_editar:
                 df_all.loc[mask, 'timestamp'] = ed_timestamp
                 df_all.loc[mask, 'categoria'] = ed_cat
                 df_all.loc[mask, 'amount'] = ed_amount if ed_amount > 0 else None
+                df_all.loc[mask, 'tipo'] = ed_tipo if ed_tipo else None
                 df_all.loc[mask, 'nota'] = ed_nota if ed_nota else None
                 if save_habits(df_all):
-                    st.success("Registro atualizado!")
+                    st.success("Registro atualizado com sucesso no Google Sheets!")
                     st.rerun()
+                    
+        st.write("---")
+        if st.button("🗑️ Excluir Linha Selecionada", type="secondary"):
+            df_all = load_habits()
+            df_remaining = df_all[df_all['id'].astype(str) != sel_id]
+            if save_habits(df_remaining):
+                st.toast(f"Registro #{sel_id} excluído!", icon="🗑️")
+                st.rerun()
 
 # -------------------------------------------------------------
 # TAB 6: DADOS NA NUVEM & RESET TOTAL
@@ -625,7 +639,7 @@ with tab_dados:
     st.dataframe(df_cloud, use_container_width=True)
     
     csv_cloud = df_cloud.to_csv(index=False).encode('utf-8')
-    st.download_button(label="📥 Baixar Backup CSV", data=csv_cloud, file_name='backup.csv', mime='text/csv')
+    st.download_button(label="📥 Baixar Backup CSV", data=csv_cloud, file_name='life_logger_backup.csv', mime='text/csv')
     
     st.divider()
     if st.button("🚨 Resetar Planilha (Apagar Tudo)", type="secondary"):
