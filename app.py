@@ -32,7 +32,7 @@ def lock_chart_zoom(fig):
     return fig
 
 # -------------------------------------------------------------
-# CONEXÃO COM GOOGLE SHEETS
+# CONEXÃO OFICIAL COM GOOGLE SHEETS
 # -------------------------------------------------------------
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -49,51 +49,22 @@ COLUNAS_SOS = [
     "id", "timestamp", "local", "acao_escolhida", "conseguiu_evitar"
 ]
 
-def get_worksheet_safely(ws_name, default_cols):
-    """Garante que a aba exista na planilha e devolve o gspread worksheet."""
-    try:
-        client = conn._instance
-        sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        sh = client.open_by_url(sheet_url)
-        
-        # Procura a aba ignorando maiúsculas/minúsculas e espaços
-        for ws in sh.worksheets():
-            if ws.title.strip().lower() == ws_name.strip().lower():
-                return ws
-                
-        # Se não encontrou, cria a aba automaticamente com os cabeçalhos
-        nova_ws = sh.add_worksheet(title=ws_name, rows=100, cols=len(default_cols))
-        nova_ws.append_row(default_cols)
-        return nova_ws
-    except Exception as e:
-        st.error(f"Erro ao acessar ou criar aba '{ws_name}': {e}")
-        return None
-
 def load_habits():
     try:
-        ws = get_worksheet_safely("habits", COLUNAS_HABITS)
-        if ws is None:
+        df = conn.read(worksheet="habits", ttl=0)
+        if df is None or df.empty or df.dropna(how="all").empty:
             return pd.DataFrame(columns=COLUNAS_HABITS)
-            
-        valores = ws.get_all_records()
-        df = pd.DataFrame(valores)
-        
-        if df.empty:
-            return pd.DataFrame(columns=COLUNAS_HABITS)
-            
+        df = df.dropna(how="all")
         for col in COLUNAS_HABITS:
             if col not in df.columns:
                 df[col] = None
-                
         df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
         df['duracao'] = pd.to_numeric(df['duracao'], errors='coerce')
         df['calorias'] = pd.to_numeric(df['calorias'], errors='coerce')
         df['dt'] = pd.to_datetime(df['timestamp'], errors='coerce')
         df = df.dropna(subset=['dt'])
-        
         if df.empty:
             return pd.DataFrame(columns=COLUNAS_HABITS)
-            
         df['data_apenas'] = df['dt'].dt.date
         df['hora'] = df['dt'].dt.hour
         df['dia_semana'] = df['dt'].dt.day_name().map({
@@ -110,52 +81,37 @@ def load_habits():
             else: return 'Madrugada (23h-05h)'
         df['turno'] = df['hora'].apply(get_p)
         return df.sort_values('dt', ascending=False).reset_index(drop=True)
-    except Exception as e:
-        st.error(f"⚠️ Erro ao ler habits: {e}")
+    except Exception:
         return pd.DataFrame(columns=COLUNAS_HABITS)
 
 def save_habits(df_to_save):
     try:
-        ws = get_worksheet_safely("habits", COLUNAS_HABITS)
-        if ws is None:
-            return False
-            
         df_clean = df_to_save[COLUNAS_HABITS].copy().fillna("")
         df_clean = df_clean.astype(str)
-        # Atualiza a aba inteira
-        dados = [COLUNAS_HABITS] + df_clean.values.tolist()
-        ws.clear()
-        ws.update(dados)
+        conn.update(worksheet="habits", data=df_clean)
         return True
     except Exception as e:
-        st.error(f"⚠️ Erro ao salvar dados no Google Sheets: {e}")
+        st.error(f"Erro ao salvar na aba habits: {e}")
         return False
 
 def load_sos():
     try:
-        ws = get_worksheet_safely("sos_fissura", COLUNAS_SOS)
-        if ws is None:
+        df = conn.read(worksheet="sos_fissura", ttl=0)
+        if df is None or df.empty or df.dropna(how="all").empty:
             return pd.DataFrame(columns=COLUNAS_SOS)
-        valores = ws.get_all_records()
-        df = pd.DataFrame(valores)
-        if df.empty:
-            return pd.DataFrame(columns=COLUNAS_SOS)
-        return df
+        return df.dropna(how="all")
     except Exception:
         return pd.DataFrame(columns=COLUNAS_SOS)
 
 def save_sos(df_to_save):
     try:
-        ws = get_worksheet_safely("sos_fissura", COLUNAS_SOS)
-        if ws is None:
-            return
         df_clean = df_to_save[COLUNAS_SOS].copy().fillna("")
         df_clean = df_clean.astype(str)
-        dados = [COLUNAS_SOS] + df_clean.values.tolist()
-        ws.clear()
-        ws.update(dados)
+        conn.update(worksheet="sos_fissura", data=df_clean)
+        return True
     except Exception as e:
-        st.error(f"Erro ao salvar SOS: {e}")
+        st.error(f"Erro ao salvar na aba sos_fissura: {e}")
+        return False
 
 def get_current_location():
     return st.session_state.get("current_location", "São Paulo")
@@ -284,52 +240,52 @@ st.sidebar.subheader("⚡ Registro Rápido (Agora)")
 c_col1, c_col2 = st.sidebar.columns([3, 2])
 with c_col1:
     if st.button("🚬 +1 Cigarro", use_container_width=True):
-        log_event_direct(categoria="Cigarro", amount=1)
-        st.toast(f"+1 Cigarro em {curr_loc} salvo no Sheets!", icon="🚬")
-        st.rerun()
+        if log_event_direct(categoria="Cigarro", amount=1):
+            st.toast(f"+1 Cigarro em {curr_loc} salvo no Sheets!", icon="🚬")
+            st.rerun()
 with c_col2:
     if st.button("🚬 +2", use_container_width=True):
-        log_event_direct(categoria="Cigarro", amount=2)
-        st.toast(f"+2 Cigarros em {curr_loc} salvos!", icon="🚬")
-        st.rerun()
+        if log_event_direct(categoria="Cigarro", amount=2):
+            st.toast(f"+2 Cigarros em {curr_loc} salvos!", icon="🚬")
+            st.rerun()
 
 st.sidebar.caption("🏋️‍♂️ Treinos Rápidos")
 col_e1, col_e2 = st.sidebar.columns(2)
 with col_e1:
     if st.button("🏋️ Musculação", help="45 min - 350 kcal", use_container_width=True):
-        log_event_direct(categoria="Exercício", tipo="Musculação", duracao=45, calorias=350, amount=1)
-        st.toast("Musculação salva no Sheets!", icon="💪")
-        st.rerun()
+        if log_event_direct(categoria="Exercício", tipo="Musculação", duracao=45, calorias=350, amount=1):
+            st.toast("Musculação salva no Sheets!", icon="💪")
+            st.rerun()
 with col_e2:
     if st.button("🏃 Corrida", help="5km - 45 min", use_container_width=True):
-        log_event_direct(categoria="Exercício", tipo="Corrida", duracao=45, calorias=450, amount=1, nota="5km")
-        st.toast("Corrida salva no Sheets!", icon="🏃")
-        st.rerun()
+        if log_event_direct(categoria="Exercício", tipo="Corrida", duracao=45, calorias=450, amount=1, nota="5km"):
+            st.toast("Corrida salva no Sheets!", icon="🏃")
+            st.rerun()
 
 col_e3, col_e4 = st.sidebar.columns(2)
 with col_e3:
     if st.button("🏀 Basquete", use_container_width=True):
-        log_event_direct(categoria="Exercício", tipo="Basquete", duracao=45, calorias=600, amount=1)
-        st.toast("Basquete salvo no Sheets!", icon="🏀")
-        st.rerun()
+        if log_event_direct(categoria="Exercício", tipo="Basquete", duracao=45, calorias=600, amount=1):
+            st.toast("Basquete salvo no Sheets!", icon="🏀")
+            st.rerun()
 with col_e4:
     if st.button("🚴 Bike", use_container_width=True):
-        log_event_direct(categoria="Exercício", tipo="Ciclismo", duracao=60, calorias=500, amount=1)
-        st.toast("Pedal salvo no Sheets!", icon="🚴")
-        st.rerun()
+        if log_event_direct(categoria="Exercício", tipo="Ciclismo", duracao=60, calorias=500, amount=1):
+            st.toast("Pedal salvo no Sheets!", icon="🚴")
+            st.rerun()
 
 st.sidebar.caption("🍻 Bebidas")
 col_b1, col_b2 = st.sidebar.columns(2)
 with col_b1:
     if st.button("🍺 Cerveja", use_container_width=True):
-        log_event_direct(categoria="Bebida", tipo="Cerveja", amount=1)
-        st.toast("+1 Cerveja salva!", icon="🍺")
-        st.rerun()
+        if log_event_direct(categoria="Bebida", tipo="Cerveja", amount=1):
+            st.toast("+1 Cerveja salva!", icon="🍺")
+            st.rerun()
 with col_b2:
     if st.button("🍷 Vinho", use_container_width=True):
-        log_event_direct(categoria="Bebida", tipo="Vinho", amount=1)
-        st.toast("+1 Taça de Vinho salva!", icon="🍷")
-        st.rerun()
+        if log_event_direct(categoria="Bebida", tipo="Vinho", amount=1):
+            st.toast("+1 Taça de Vinho salva!", icon="🍷")
+            st.rerun()
 
 # -------------------------------------------------------------
 # MAIN APP TABS
@@ -353,7 +309,7 @@ with tab_semana:
     st.caption("Conectado diretamente ao Google Sheets. Dados permanentes e seguros.")
     
     if df.empty:
-        st.info("Sua planilha está pronta. Comece preenchendo a semana na aba 'Lançamento Rápido por Dia'!")
+        st.info("Sua planilha está pronta e limpa. Comece preenchendo a semana na aba 'Lançamento Rápido por Dia' ou pelos botões da barra lateral!")
     else:
         todas_semanas = sorted(df['semana_inicio'].unique(), reverse=True)
         semanas_dict = {
